@@ -119,18 +119,17 @@ data_orangAsli$vill_access <- ifelse(data_orangAsli$vill_access_by___car==1, 3,
                                        ifelse(data_orangAsli$vill_access_by___moto==1, 1, 
                                               ifelse(data_orangAsli$vill_access_by___boat==1, 1, 
                                                      ifelse(data_orangAsli$vill_access_by___none==1, 0, NA)))))
-data_orangAsli <- left_join(data_orangAsli, 
-                       data_orangAsli %>% 
-                         dplyr::group_by(interview_location_med, vill_access) %>%
-                         dplyr::summarize(count = n()) %>%
-                         dplyr::arrange(interview_location_med, desc(count)) %>%
-                         dplyr::slice(1) %>%
-                         dplyr::select(interview_location_med, top_selected_vill_access = vill_access), 
-                       by = c("interview_location_med"))
+top_village_access <- data_orangAsli %>% 
+  dplyr::group_by(interview_location_med, vill_access) %>%
+  dplyr::summarize(count = n()) %>%
+  dplyr::arrange(interview_location_med, desc(count)) %>%
+  dplyr::slice(1) %>%
+  dplyr::select(interview_location_med, top_selected_vill_access = vill_access) %>% 
+  mutate(top_selected_vill_access = top_selected_vill_access/3)
 
 # Bind together
-urban_oa<-as.data.frame(cbind(not_wage[,1:2],plumbing[,2],electricity_prop[,2],electricity_community[,2],tv[,2],smart_phone[,2]))
-names(urban_oa)<-c('location','prop_not_wage','prop_toilet','prop_electricity','community_electricity','prop_tv','prop_smart_phone')
+urban_oa<-as.data.frame(cbind(not_wage[,1:2],plumbing[,2],electricity_prop[,2],electricity_community[,2],tv[,2],smart_phone[,2],top_village_access[,2]))
+names(urban_oa)<-c('location','prop_not_wage','prop_toilet','prop_electricity','community_electricity','prop_tv','prop_smart_phone','top_vill_access')
 urban2_oa<-merge(urban_oa,data_orangAsli_40plus_ed,by.x='location',by.y='interview_location_med') 
 urban3_oa<-merge(urban2_oa,data_orangAsli_40less_ed,by.x='location',by.y='interview_location_med')
 urban3_oa<-merge(urban3_oa,tot_oa,by='location')
@@ -172,5 +171,9 @@ urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>200)]<-5
 urban5_oa$urb_score <- 10 - (10*urban5_oa$prop_not_wage) + 5*urban5_oa$prop_toilet + 
   5*urban5_oa$prop_electricity + 5*urban5_oa$community_electricity + 
   5*urban5_oa$prop_tv + 5*urban5_oa$prop_smart_phone + 
+  5*urban5_oa$top_vill_access + 
   10*urban5_oa$prop_40plus_ed + 10*urban5_oa$prop_40less_ed + 
   urban5_oa$pop_cat
+
+data_orangAsli <- left_join(data_orangAsli, urban5_oa[,c("location","urb_score")], by = c("interview_location_med" = "location"))
+
