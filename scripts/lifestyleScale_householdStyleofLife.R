@@ -44,6 +44,11 @@ data_turkana[data_turkana$h_sol == "NaN",]$h_sol <- NA
 
 
 # Orang Asli 
+data_orangAsli$water_source___gov_tap <- 0
+data_orangAsli[which(data_orangAsli$water_source___filter==0 & 
+                     data_orangAsli$water_source___river_lake==0 & 
+                     data_orangAsli$water_source___well==0),]$water_source___gov_tap <- 1
+
 data_orangAsli <- data_orangAsli %>% 
   mutate(highest_where_poop = case_when(
     where_poop___toilet == 1 ~ 1,
