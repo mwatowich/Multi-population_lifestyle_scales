@@ -9,9 +9,9 @@ library(dplyr)
 library(geosphere)
 
 
-## Calculate location-based urbanicity score 
-
 ## Turkana ---------------------------------
+
+## Assumes you have a file of complete Turkana data with lifestyle and demographic data. Because this is at the community-level, generate urbanicity indexes per population on ALL individuals, not only those in your study. 
 
 # Aggregate proportion per sample location 
 plumbing<-aggregate(data_turkana$presence_of_flush_toilet ~ data_turkana$Standardized_name,FUN=function(x) length(which(x=='Yes')) / length(which(x=='Yes' | x=='No')))
@@ -42,6 +42,9 @@ urban4<-merge(urban3,tot,by='location')
 # Estimate population density per location - generated from Gridded Population of the World 
 density=read.delim("Kenya_density_2020_2pt5_min.txt")
 
+# Read in sampling location information
+sampling_locs <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/115moxA1-_gveCFStQe_P2YvGFe5L8sLZIb-AP-JwTX8/edit#gid=1116356671")[,1:5]
+
 # Pull density from closest coordinates
 density <- density[density$x < max(sampling_locs$X_longitude,na.rm=T) & 
                      density$x > min(sampling_locs$X_longitude,na.rm=T),]
@@ -60,27 +63,51 @@ for (i in 1:dim(sampling_locs[!is.na(sampling_locs$Y_latitude),])[1]){
 colnames(res) <- c("X_res", "Y_res", "ken_general_2020", "distance")
 # 
 density2=as.data.frame(cbind(sampling_locs[!is.na(sampling_locs$Y_latitude),],res))
-urban5=merge(density2[,c('Sampling_location','Standardized_name','ken_general_2020','Y_latitude','X_longitude')],
-             urban4,
-             by.y='location',by.x='Standardized_name')
+urban5=merge(density2[,c('Sampling_location','Standardized_name','ken_general_2020','Y_latitude','X_longitude')], urban4, by.y='location',by.x='Standardized_name')
 
-urban5$pop_cat<-1
-urban5$pop_cat[which(urban5$ken_general_2020>10)]<-2
-urban5$pop_cat[which(urban5$ken_general_2020>50)]<-3
-urban5$pop_cat[which(urban5$ken_general_2020>100)]<-4
-urban5$pop_cat[which(urban5$ken_general_2020>200)]<-5
-urban5$pop_cat[which(urban5$ken_general_2020>300)]<-6
-urban5$pop_cat[which(urban5$ken_general_2020>400)]<-7
-urban5$pop_cat[which(urban5$ken_general_2020>500)]<-8
-urban5$pop_cat[which(urban5$ken_general_2020>1000)]<-9
-urban5$pop_cat[which(urban5$ken_general_2020>1500)]<-10
+# Assign population density score (Original method)
+# urban5$pop_cat<-1
+# urban5$pop_cat[which(urban5$ken_general_2020>10)]<-2
+# urban5$pop_cat[which(urban5$ken_general_2020>50)]<-3
+# urban5$pop_cat[which(urban5$ken_general_2020>100)]<-4
+# urban5$pop_cat[which(urban5$ken_general_2020>200)]<-5
+# urban5$pop_cat[which(urban5$ken_general_2020>300)]<-6
+# urban5$pop_cat[which(urban5$ken_general_2020>400)]<-7
+# urban5$pop_cat[which(urban5$ken_general_2020>500)]<-8
+# urban5$pop_cat[which(urban5$ken_general_2020>1000)]<-9
+# urban5$pop_cat[which(urban5$ken_general_2020>1500)]<-10
 
-urban5$urb_score <- urban5$pop_cat + (10-(10*urban5$prop_not_wage))+(5*urban5$prop_electricity)+(5*urban5$prop_toilet)+(5*urban5$prop_tv)+(5*urban5$prop_phone)+10*urban5$prop_40plus_ed+10*urban5$prop_40less_ed
+# Assign population density score (as of Jan 2025)
+pop_categories = c(0,100,200,300,400,500,1000,2000,3000,4000,6000,8000,10000,15000,20000,Inf)
+urban5$pop_cat <- cut(
+  urban5$ken_general_2020,
+  breaks = pop_categories, # n labels = breaks-1 
+  labels = c((10/(length(pop_categories)-1)) * 1:(length(pop_categories)-1)), # break categories into even parts, scaled 0-10 
+  include.lowest = T,
+  right = F
+)
+urban5$pop_cat <- as.numeric(as.character(urban5$pop_cat))
+
+# Calculate urbanicity index per location
+urban5$urb_score <- urban5$pop_cat + 
+  (10-(10*urban5$prop_not_wage)) +
+  (5*urban5$prop_electricity) + 
+  (5*urban5$prop_toilet) +
+  (5*urban5$prop_tv) +
+  (5*urban5$prop_phone) +
+  10*urban5$prop_40plus_ed +
+  10*urban5$prop_40less_ed
 urban5<-subset(urban5, urb_score!='NA')
 
 
-
 ## Orang Asli ------------------------------
+
+## Assumes you have a file of all OA medical, traditional lifestyle, etc. data. Because this is at the community-level, generate urbanicity indexes per population on ALL individuals, not only those in your study. 
+
+# Read in village locations
+oa_village_loc <- read.delim("oa_village_register.csv",header = T,sep = ",")
+oa_village_loc <- oa_village_loc[which(complete.cases(oa_village_loc$village_id) & complete.cases(oa_village_loc$lat)), c("village_id","lat","long")]
+oa_village_loc$village_id <- as.character(oa_village_loc$village_id)
 
 # Aggregate by location - wage labor, sewage, electricity 
 not_wage<-aggregate(data_orangAsli$wage_past_month ~ data_orangAsli$interview_location_med,FUN=function(x) length(which(x == 0))/length(which(x!='NA')))
@@ -88,13 +115,14 @@ plumbing<-aggregate(data_orangAsli$where_poop___toilet ~ data_orangAsli$intervie
 electricity_prop<-aggregate(data_orangAsli$electricity_resid ~ data_orangAsli$interview_location_med,FUN=function(x) length(which(x==1)) / length(which(x!='NA')))
 
 # Is there electricity in the community that comes from power lines? Aggregate per location 
-data_orangAsli[data_orangAsli$interview_location_med==0 & data_orangAsli$electricity_resid_source___power_lines==1,]$electricity_resid_source___power_lines <- 1
 communities_w_power <- data_orangAsli %>%
-  group_by(interview_location_med, electricity_resid_source___power_lines) %>%
-  summarise(count=n()) %>% 
-  filter(electricity_resid_source___power_lines == 1 & count > 1)
+  group_by(interview_location_med) %>%
+  summarise(count=n(), num_w_power = sum(electricity_resid_source___power_lines == 1, na.rm=T)) %>% 
+  mutate(prop_w_power = num_w_power/count, 
+         community_power_lines = case_when(num_w_power>1~1, .default = 0))
 data_orangAsli$community_power_lines <- 0
-data_orangAsli[data_orangAsli$interview_location_med %in% communities_w_power$interview_location_med,]$community_power_lines <- 1
+data_orangAsli[data_orangAsli$interview_location_med %in% 
+            communities_w_power[communities_w_power$community_power_lines==1,]$interview_location_med,]$community_power_lines <- 1
 electricity_community <- aggregate(data_orangAsli$community_power_lines ~ data_orangAsli$interview_location_med,FUN=function(x) length(which(x==1)) / length(which(x!='NA')))
 
 # Aggregate by location - material wealth via household items 
@@ -114,37 +142,37 @@ tot_oa<-as.data.frame(aggregate(data_orangAsli$sex_medical ~ data_orangAsli$inte
 names(tot_oa)<-c('location','total')
 
 # Highest village access 
-data_orangAsli$vill_access <- ifelse(data_orangAsli$vill_access_by___car==1, 3, 
-                                ifelse(data_orangAsli$vill_access_by___truck==1, 2, 
-                                       ifelse(data_orangAsli$vill_access_by___moto==1, 1, 
-                                              ifelse(data_orangAsli$vill_access_by___boat==1, 1, 
-                                                     ifelse(data_orangAsli$vill_access_by___none==1, 0, NA)))))
-top_village_access <- data_orangAsli %>% 
-  dplyr::group_by(interview_location_med, vill_access) %>%
-  dplyr::summarize(count = n()) %>%
-  dplyr::arrange(interview_location_med, desc(count)) %>%
-  dplyr::slice(1) %>%
-  dplyr::select(interview_location_med, top_selected_vill_access = vill_access) %>% 
-  mutate(top_selected_vill_access = top_selected_vill_access/3)
+# data_orangAsli$vill_access <- ifelse(data_orangAsli$vill_access_by___car==1, 3, 
+#                                 ifelse(data_orangAsli$vill_access_by___truck==1, 2, 
+#                                        ifelse(data_orangAsli$vill_access_by___moto==1, 1, 
+#                                               ifelse(data_orangAsli$vill_access_by___boat==1, 1, 
+#                                                     ifelse(data_orangAsli$vill_access_by___none==1, 0, NA)))))
+# top_village_access <- data_orangAsli %>% 
+#   dplyr::group_by(interview_location_med, vill_access) %>%
+#   dplyr::summarize(count = n()) %>%
+#   dplyr::arrange(interview_location_med, desc(count)) %>%
+#   dplyr::slice(1) %>%
+#   dplyr::select(interview_location_med, top_selected_vill_access = vill_access) %>% 
+#   mutate(top_selected_vill_access = top_selected_vill_access/3)
 
 # Bind together
-urban_oa<-as.data.frame(cbind(not_wage[,1:2],plumbing[,2],electricity_prop[,2],electricity_community[,2],tv[,2],smart_phone[,2],top_village_access[,2]))
-names(urban_oa)<-c('location','prop_not_wage','prop_toilet','prop_electricity','community_electricity','prop_tv','prop_smart_phone','top_vill_access')
+urban_oa<-as.data.frame(cbind(not_wage[,1:2],plumbing[,2],electricity_prop[,2],electricity_community[,2],tv[,2],smart_phone[,2]))
+names(urban_oa)<-c('location','prop_not_wage','prop_toilet','prop_electricity','community_electricity','prop_tv','prop_smart_phone')
 urban2_oa<-merge(urban_oa,data_orangAsli_40plus_ed,by.x='location',by.y='interview_location_med') 
 urban3_oa<-merge(urban2_oa,data_orangAsli_40less_ed,by.x='location',by.y='interview_location_med')
 urban3_oa<-merge(urban3_oa,tot_oa,by='location')
 
 # Add lat/long 
 urban4_oa <- merge(urban3_oa, 
-                   distinct(data_orangAsli[,c("interview_location_med","lat","long")]), 
-                   by.x = "location", by.y = "interview_location_med")
+                   oa_village_loc, 
+                   by.x = "location", by.y = "village_id")
 
 ## Estimate population density per location - generated from Gridded Population of the World 
 density_oa=read.delim("Malaysia_density_2020_2pt5_min.txt")
 
 ## Pull density from closest coordinates
-density_oa <- density_oa[density_oa$x < max(data_orangAsli$long,na.rm=T) &
-                           density_oa$x > min(data_orangAsli$long,na.rm=T),]
+density_oa <- density_oa[density_oa$x < max(oa_village_loc$long,na.rm=T) &
+                           density_oa$x > min(oa_village_loc$long,na.rm=T),]
 res_oa<-as.data.frame(matrix(ncol=4, nrow=nrow(urban4_oa)))
 res_oa$location <- urban4_oa$location
 for (i in 1:nrow(res_oa)){
@@ -160,20 +188,34 @@ for (i in 1:nrow(res_oa)){
 colnames(res_oa) <- c("X_res", "Y_res", "malaysia_general_2020", "distance","location")
 urban5_oa=left_join(res_oa, urban4_oa, by=c('location'))
 
-# Assign number based on population density 
-urban5_oa$pop_cat<-1
-urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>10)]<-2
-urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>50)]<-3
-urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>100)]<-4
-urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>200)]<-5
+# Assign number based on population density (Original method)
+# urban5_oa$pop_cat<-1
+# urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>10)]<-2
+# urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>50)]<-3
+# urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>100)]<-4
+# urban5_oa$pop_cat[which(urban5_oa$malaysia_general_2020>200)]<-5
 
+# Assign number based on population density (New method as of Jan 2025)
+pop_categories = c(0,100,200,300,400,500,1000,2000,3000,4000,6000,8000,10000,15000,20000,Inf)
+urban5_oa$pop_cat <- cut(
+  urban5_oa$malaysia_general_2020,
+  breaks = pop_categories, # n labels = breaks-1 
+  labels = c((10/(length(pop_categories)-1)) * 1:(length(pop_categories)-1)), # break categories into even parts, scaled 0-10 
+  include.lowest = T,
+  right = F
+)
+urban5_oa$pop_cat <- as.numeric(as.character(urban5_oa$pop_cat))
+                                
 # Make score 
-urban5_oa$urb_score <- 10 - (10*urban5_oa$prop_not_wage) + 5*urban5_oa$prop_toilet + 
-  5*urban5_oa$prop_electricity + 5*urban5_oa$community_electricity + 
-  5*urban5_oa$prop_tv + 5*urban5_oa$prop_smart_phone + 
-  5*urban5_oa$top_vill_access + 
-  10*urban5_oa$prop_40plus_ed + 10*urban5_oa$prop_40less_ed + 
-  urban5_oa$pop_cat
+urban5_oa$urb_score <- urban5_oa$pop_cat + 
+  (10-(10*urban5_oa$prop_not_wage)) + 
+  5*urban5_oa$prop_electricity + 
+  5*urban5_oa$prop_toilet + 
+  5*urban5_oa$prop_tv + 
+  5*urban5_oa$prop_smart_phone + 
+  10*urban5_oa$prop_40plus_ed +
+  10*urban5_oa$prop_40less_ed
+urban5_oa<-subset(urban5_oa, urb_score!='NA')
 
 data_orangAsli <- left_join(data_orangAsli, urban5_oa[,c("location","urb_score")], by = c("interview_location_med" = "location"))
 
