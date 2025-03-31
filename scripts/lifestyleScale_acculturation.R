@@ -40,7 +40,7 @@ data_orangAsli <- data_orangAsli %>%
   mutate(highest_education_stage_num = case_when(
     highest_education_stage == 3 ~ 3/3,
     highest_education_stage == 2 ~ 2/3,
-    highest_education_stage == 1 ~ 2/3,
+    highest_education_stage == 1 ~ 1/3,
     highest_education_stage == 0 ~ 0/3,
     .default = NA
   ), 
